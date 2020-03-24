@@ -2,6 +2,7 @@ Tax Declaration Update Tool
 ===========================
 
 Loads data for tax declarations from a csv file and updates records via the API.
+
 Please be aware that it makes 2 API calls PER LINE of data in the csv file, so
 may take a long time to load a large file and also slow down the Blackbaud 
 environment. It may be a good idea to break the load into chunks or run the job
