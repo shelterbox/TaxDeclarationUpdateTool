@@ -22,7 +22,7 @@ To use the tool
       the tool can update Guid, Date, String, Integer and Boolean types.
     * The tool does not map values to ids for Code Tables, Simple Data Lists or Value Lists. 
       You will have to look these up and resolve them in the csv file before importing.
- 2. Run the tool by right-clicking the file TaxDeclarationUpdateTool.ps1 and selecting "Run with PowerShell".
+ 2. Run the tool by double-clicking the file TaxDeclarationUpdateTool.cmd and approving the UAC request.
  3. Click the button "Choose file to import..." and select your csv file.
  4. Select the Blackbaud CRM environment you want to load the data into.
  5. Click the "Credential" button and enter your username and password for the selected environment.
