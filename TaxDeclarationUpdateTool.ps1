@@ -86,136 +86,161 @@ Function Run-Import() {
                                     </soap:Body>
                                 </soap:Envelope>"
 
+            $LoadErrorFlag = $false
             Try {
                 $LoadResponse = Invoke-WebRequest -Uri $ServiceUrl -Credential $Credential -Method Post -Body $LoadRequest -ContentType 'application/soap+xml;charset=UTF-8'
+            } Catch [System.Management.Automation.ErrorRecord] {
+                $listOutput.Items.Add( "No permission to access Blackbaud CRM. Did you use the correct credential for the selected environment?" )
             } Catch {
-                $listOutput.Items.Add( "Error loading data from Blackbaud CRM ($( $_.ErrorDetails)). Did you use the correct credential for the selected environment?" )
-                Return
-            }
-
-            $ResponseContent = [xml]$LoadResponse.Content
-            $Values = $ResponseContent.Envelope.Body.DataFormLoadReply.DataFormItem.Values
-
-            # b) Update DataFormItem
-
-            $Headers = $Row | Get-Member -MemberType NoteProperty | select Name
-            $Headers | %{
-                $ColumnName = $_.Name <#
-                $ColumnName = $Headers[0].Name <#
-                #>
-                $MappedColumn = ( $Values.fv | ?{ $_.ID -eq $ColumnName } )
-                If( $MappedColumn -ne $null ) {
-                    $OriginalValue = $MappedColumn.Value
-
-                    $NewValue = $Row.( $ColumnName )
-
-                    $ColumnType = $( Switch( $MappedColumn.Value.type ) {
-                        'q1:guid' { 'ms:guid' }
-                        'xsd:dateTime' { 'xsd:dateTime' }
-                        'xsd:unsignedByte' { 'xsd:unsignedbyte' }
-                        'xsd:boolean' { 'xsd:boolean' }
-                        'xsd:string' { 'xsd:string' }
-                        default { $null }
-                    } )
-
-                    If( $ColumnType -eq $null -or $ColumnType -eq 'ms:guid' ) {
-                        If( $NewValue -imatch '^[0-9a-z]{8}(?:-[0-9a-z]{4}){3}-[0-9a-z]{12}$' ) {
-                            If( $ColumnType -eq $null ) { $ColumnType = 'ms:guid' }
-                        } Else {
-                            If( $ColumnType -eq 'ms:guid' ) { $listOutput.Items.Add( "Column type is GUID, but value was not a valid GUID." ) }
-                        }
-                    }
-
-                    If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:dateTime' ) {
-                        $Match = ( [regex] '(?i)(0[1-9]|[12][0-9]|3[01])[/-](0[1-9]|1[0-2])[/-](\d{4})' ).Match( $NewValue )
-                        If( $Match.Success ) {
-                            $NewValue = "$( $Match.Groups[3].Value )-$( $Match.Groups[2].Value )-$( $Match.Groups[1].Value )T00:00:00"
-                            If( $ColumnType -eq $null ) { $ColumnType = 'xsd:dateTime' }
-                        } Else {
-                            If( $ColumnType -eq 'xsd:dateTime' ) { $listOutput.Items.Add( "Column type is dateTime, but value was not a valid date." ) }
-                        }
-                    }
-
-                    If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:boolean' ) {
-                        If( $NewValue -imatch '^(?:yes|true|y|1)$' ) {
-                            $NewValue = 'true'
-                            If( $ColumnType -eq $null ) { $ColumnType = 'xsd:boolean' }
-                        } ElseIf( $NewValue -imatch '^(?:no|false|n|0)$' ) {
-                            $NewValue = 'false'
-                            If( $ColumnType -eq $null ) { $ColumnType = 'xsd:boolean' }
-                        } Else {
-                            If( $ColumnType -eq 'xsd:boolean' ) { $listOutput.Items.Add( "Column type is boolean, but value was not a valid boolean." ) }
-                        }
-                    }
-
-                    If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:unsignedbyte' ) {
-                        $Match = ( [regex] '(\d+)' ).Match( $NewValue )
-                        If( $Match.Success ) {
-                            If( $ColumnType -eq $null ) { $ColumnType = 'xsd:unsignedbyte' }
-                        } Else {
-                            If( $ColumnType -eq 'xsd:unsignedbyte' ) { $listOutput.Items.Add( "Column type is unsigned byte (a whole number), but value was not a valid unsigned byte." ) }
-                        }
-                    }
-
-                    If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:string' ) {
-                        If( $ColumnType -eq $null ) { $ColumnType = 'xsd:string' }
-                    }
-
-                    If( $ColumnType -ne $null ) {
-                        If( $NewValue -ne $MappedColumn.Value.'#text' ) {
-                            $listOutput.Items.Add( "Updating $ColumnType column `"$ColumnName`" from `"$($MappedColumn.Value.'#text')`" to `"$($NewValue)`"" )
-
-                            $ns_xsi = "http://www.w3.org/2001/XMLSchema-instance"                             $ns_xsd = "http://www.w3.org/2001/XMLSchema"                            $ns_bb = "bb_appfx_dataforms"
-                            $ns_ms = "http://microsoft.com/wsdl/types/"
-                            $el = $ResponseContent.CreateElement( "Value", $ns_bb )
-                            If( $ColumnType -like 'ms:*' ) { $el.SetAttribute( "xmlns:ms", $ns_ms ) }
-                            $el.Attributes.Append( $ResponseContent.CreateAttribute( "xsi", "type", $ns_xsi ) ).Value = $ColumnType
-                            $el.InnerText = $NewValue
-
-                            If( $MappedColumn.Value -eq $null ) {
-                                $MappedColumn.AppendChild( $el ) | Out-Null
-                            } Else {
-                                $MappedColumn.ReplaceChild( $el, $MappedColumn.Value )
-                            }
-                        }
-                    } Else {
-                        $listOutput.Items.Add( "Could not validate new value for column ""$ColumnName""." )
-                    }
+                $LoadErrorFlag = $true
+                $listOutput.Items.Add( "Error loading data from Blackbaud CRM." )
+                # Let's try to get some more details on what went wrong...
+                Try {
+                    $ErrorDetails = [xml]$_.ErrorDetails
+                    # The error details were xml, so let's output the inner error message
+                    $listOutput.Items.Add( "    Details: $( $ErrorDetails.Envelope.Header.ResponseErrorHeader.ErrorText )" )
+                } Catch [System.Management.Automation.PSInvalidCastException] {
+                    # The error details were not xml, so we will assume that they were just text
+                    $listOutput.Items.Add( "    Details: $( $_.ErrorDetails)" )
+                } Catch {
+                    # Something else happened...?
+                    $listOutput.Items.Add( "    Details: $( $_.ErrorDetails)" )
                 }
             }
+            If( $LoadErrorFlag -ne $true ) {
+                $ResponseContent = [xml]$LoadResponse.Content
+                $Values = $ResponseContent.Envelope.Body.DataFormLoadReply.DataFormItem.Values
 
-    #    c) Save DataFormItem
+                # b) Update DataFormItem
 
-            $SaveRequest = [xml]"<?xml version=`"1.0`" encoding=`"UTF-8`"?>
-                                <soap:Envelope xmlns:soap=`"http://www.w3.org/2003/05/soap-envelope`">
-                                    <soap:Header/>
-                                    <soap:Body>
-                                        <DataFormSaveRequest xmlns=`"Blackbaud.AppFx.WebService.API.1`">
-                                            <ClientAppInfo
-                                                REDatabaseToUse=`"79599S`" 
-                                                ClientAppName=`"TaxDeclarationUpdateTool`" 
-                                                TimeOutSeconds=`"60`"
-                                                RunAsUserID=`"00000000-0000-0000-0000-000000000000`" 
-                                                ClientUICulture=`"en-US`" 
-                                                ClientCulture=`"en-US`" 
-                                                TimeZone=`"Eastern Standard Time`">
-                                            </ClientAppInfo>
-                                            <FormID>c5c6eeee-412e-47e7-928b-7cf07366812b</FormID>
-                                            <ID>$RowId</ID>
-                                            <DataFormItem>
-                                                <Values xmlns=`"bb_appfx_dataforms`" />
-                                            </DataFormItem>
-                                        </DataFormSaveRequest>
-                                    </soap:Body>
-                                </soap:Envelope>"
+                $Headers = $Row | Get-Member -MemberType NoteProperty | select Name
+                $Headers | %{
+                    $ColumnName = $_.Name <#
+                    $ColumnName = $Headers[0].Name <#
+                    #>
+                    $MappedColumn = ( $Values.fv | ?{ $_.ID -eq $ColumnName } )
+                    If( $MappedColumn -ne $null ) {
+                        $OriginalValue = $MappedColumn.Value
+
+                        $NewValue = $Row.( $ColumnName )
+
+                        $ColumnType = $( Switch( $MappedColumn.Value.type ) {
+                            'q1:guid' { 'ms:guid' }
+                            'xsd:dateTime' { 'xsd:dateTime' }
+                            'xsd:unsignedByte' { 'xsd:unsignedbyte' }
+                            'xsd:boolean' { 'xsd:boolean' }
+                            'xsd:string' { 'xsd:string' }
+                            default { $null }
+                        } )
+
+                        If( $ColumnType -eq $null -or $ColumnType -eq 'ms:guid' ) {
+                            If( $NewValue -imatch '^[0-9a-z]{8}(?:-[0-9a-z]{4}){3}-[0-9a-z]{12}$' ) {
+                                If( $ColumnType -eq $null ) { $ColumnType = 'ms:guid' }
+                            } Else {
+                                If( $ColumnType -eq 'ms:guid' ) { $listOutput.Items.Add( "Column type is GUID, but value was not a valid GUID." ) }
+                            }
+                        }
+
+                        If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:dateTime' ) {
+                            $Match = ( [regex] '(?i)(0[1-9]|[12][0-9]|3[01])[/-](0[1-9]|1[0-2])[/-](\d{4})' ).Match( $NewValue )
+                            If( $Match.Success ) {
+                                $NewValue = "$( $Match.Groups[3].Value )-$( $Match.Groups[2].Value )-$( $Match.Groups[1].Value )T00:00:00"
+                                If( $ColumnType -eq $null ) { $ColumnType = 'xsd:dateTime' }
+                            } Else {
+                                If( $ColumnType -eq 'xsd:dateTime' ) { $listOutput.Items.Add( "Column type is dateTime, but value was not a valid date." ) }
+                            }
+                        }
+
+                        If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:boolean' ) {
+                            If( $NewValue -imatch '^(?:yes|true|y|1)$' ) {
+                                $NewValue = 'true'
+                                If( $ColumnType -eq $null ) { $ColumnType = 'xsd:boolean' }
+                            } ElseIf( $NewValue -imatch '^(?:no|false|n|0)$' ) {
+                                $NewValue = 'false'
+                                If( $ColumnType -eq $null ) { $ColumnType = 'xsd:boolean' }
+                            } Else {
+                                If( $ColumnType -eq 'xsd:boolean' ) { $listOutput.Items.Add( "Column type is boolean, but value was not a valid boolean." ) }
+                            }
+                        }
+
+                        If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:unsignedbyte' ) {
+                            $Match = ( [regex] '(\d+)' ).Match( $NewValue )
+                            If( $Match.Success ) {
+                                If( $ColumnType -eq $null ) { $ColumnType = 'xsd:unsignedbyte' }
+                            } Else {
+                                If( $ColumnType -eq 'xsd:unsignedbyte' ) { $listOutput.Items.Add( "Column type is unsigned byte (a whole number), but value was not a valid unsigned byte." ) }
+                            }
+                        }
+
+                        If( $ColumnType -eq $null -or $ColumnType -eq 'xsd:string' ) {
+                            If( $ColumnType -eq $null ) { $ColumnType = 'xsd:string' }
+                        }
+
+                        If( $ColumnType -ne $null ) {
+                            If( $NewValue -ne $MappedColumn.Value.'#text' ) {
+                                $listOutput.Items.Add( "Updating $ColumnType column `"$ColumnName`" from `"$($MappedColumn.Value.'#text')`" to `"$($NewValue)`"" )
+
+                                $ns_xsi = "http://www.w3.org/2001/XMLSchema-instance"                                 $ns_xsd = "http://www.w3.org/2001/XMLSchema"                                $ns_bb = "bb_appfx_dataforms"
+                                $ns_ms = "http://microsoft.com/wsdl/types/"
+                                $el = $ResponseContent.CreateElement( "Value", $ns_bb )
+                                If( $ColumnType -like 'ms:*' ) { $el.SetAttribute( "xmlns:ms", $ns_ms ) }
+                                $el.Attributes.Append( $ResponseContent.CreateAttribute( "xsi", "type", $ns_xsi ) ).Value = $ColumnType
+                                $el.InnerText = $NewValue
+
+                                If( $MappedColumn.Value -eq $null ) {
+                                    $MappedColumn.AppendChild( $el ) | Out-Null
+                                } Else {
+                                    $MappedColumn.ReplaceChild( $el, $MappedColumn.Value )
+                                }
+                            }
+                        } Else {
+                            $listOutput.Items.Add( "Could not validate new value for column ""$ColumnName""." )
+                        }
+                    }
+                }
+
+        #    c) Save DataFormItem
+
+                $SaveRequest = [xml]"<?xml version=`"1.0`" encoding=`"UTF-8`"?>
+                                    <soap:Envelope xmlns:soap=`"http://www.w3.org/2003/05/soap-envelope`">
+                                        <soap:Header/>
+                                        <soap:Body>
+                                            <DataFormSaveRequest xmlns=`"Blackbaud.AppFx.WebService.API.1`">
+                                                <ClientAppInfo
+                                                    REDatabaseToUse=`"79599S`" 
+                                                    ClientAppName=`"TaxDeclarationUpdateTool`" 
+                                                    TimeOutSeconds=`"60`"
+                                                    RunAsUserID=`"00000000-0000-0000-0000-000000000000`" 
+                                                    ClientUICulture=`"en-US`" 
+                                                    ClientCulture=`"en-US`" 
+                                                    TimeZone=`"Eastern Standard Time`">
+                                                </ClientAppInfo>
+                                                <FormID>c5c6eeee-412e-47e7-928b-7cf07366812b</FormID>
+                                                <ID>$RowId</ID>
+                                                <DataFormItem>
+                                                    <Values xmlns=`"bb_appfx_dataforms`" />
+                                                </DataFormItem>
+                                            </DataFormSaveRequest>
+                                        </soap:Body>
+                                    </soap:Envelope>"
             
-            $NewDataFormValue = $SaveRequest.ImportNode( $Values, $true )
-            $SaveRequest.Envelope.Body.DataFormSaveRequest.DataFormItem.ReplaceChild( $NewDataFormValue, $SaveRequest.Envelope.Body.DataFormSaveRequest.DataFormItem.Values )
-            Try {
-                $SaveResponse = Invoke-WebRequest -Uri $ServiceUrl -Credential $Credential -Method Post -Body $SaveRequest -ContentType 'application/soap+xml;charset=UTF-8'
-            } Catch {
-                $listOutput.Items.Add( "Error saving data to Blackbaud CRM. Did you use the correct credential for the selected environment?" )
-                Return
+                $NewDataFormValue = $SaveRequest.ImportNode( $Values, $true )
+                $SaveRequest.Envelope.Body.DataFormSaveRequest.DataFormItem.ReplaceChild( $NewDataFormValue, $SaveRequest.Envelope.Body.DataFormSaveRequest.DataFormItem.Values )
+                Try {
+                    $SaveResponse = Invoke-WebRequest -Uri $ServiceUrl -Credential $Credential -Method Post -Body $SaveRequest -ContentType 'application/soap+xml;charset=UTF-8'
+                } Catch {
+                    Try {
+                        $ErrorDetails = [xml]$_.ErrorDetails
+                        # The error details were xml, so let's output the inner error message
+                        $listOutput.Items.Add( "    Details: $( $ErrorDetails.Envelope.Header.ResponseErrorHeader.ErrorText )" )
+                    } Catch [System.Management.Automation.PSInvalidCastException] {
+                        # The error details were not xml, so we will assume that they were just text
+                        $listOutput.Items.Add( "    Details: $( $_.ErrorDetails)" )
+                    } Catch {
+                        # Something else happened...?
+                        $listOutput.Items.Add( "    Details: $( $_.ErrorDetails)" )
+                    }
+                }
             }
         }
     }
