@@ -51,143 +51,6 @@ $Script:Environments = @(
     @{ 'Name' = 'Production'; 'ServiceUrl' = 'https://crm79599p.sky.blackbaud.com/79599P_398bba46-db35-4427-b732-b01ea09a37a9/appfxwebservice.asmx'; 'Database' = '79599P'; 'Credential' = $null; }
 )
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-[System.Windows.Forms.Application]::EnableVisualStyles()
-
-$Form                            = New-Object system.Windows.Forms.Form
-$Form.ClientSize                 = '600,400'
-$Form.MinimumSize                = '220,300'
-$Form.Text                       = "Tax Declaration Update Tool"
-$Form.TopMost                    = $false
-$Form.BringToFront()
-$Form.StartPosition              = 'CenterScreen'
-
-$btnFile                         = New-Object system.Windows.Forms.Button
-$btnFile.Text                    = "Choose file to import..."
-$btnFile.Width                   = 280
-$btnFile.Height                  = 30
-$btnFile.Anchor                  = 'top,left,right'
-$btnFile.Location                = New-Object System.Drawing.Point(10,25)
-$btnFile.Add_Click( {
-    $FileOpenForm = New-Object System.Windows.Forms.OpenFileDialog
-    $FileOpenForm.Filter = "Csv files (*.csv)|*.csv|All files(*.*)|*.*"
-    If( $FileOpenForm.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK ) {
-        $Script:Csv = Import-Csv $FileOpenForm.FileName
-        $btnFile.Text = $FileOpenForm.SafeFileName
-        $numStartRow.Enabled = $true
-        $numStartRow.Maximum = $Script:Csv.Length
-        $numStartRow.Value = 1
-        $numEndRow.Enabled = $true
-        $numEndRow.Maximum = $Script:Csv.Length
-        $numEndRow.Value = $Script:Csv.Length
-    } Else {
-        $Script:Csv = $null
-    }
-} )
-
-$labelEnvironment                = New-Object system.Windows.Forms.Label
-$labelEnvironment.Text           = "Select environment to import into"
-$labelEnvironment.Width          = 190
-$labelEnvironment.Height         = 20
-$labelEnvironment.Anchor          = 'top,right'
-$labelEnvironment.Location       = New-Object System.Drawing.Point(310,10)
-
-$textEnvironment                 = New-Object System.Windows.Forms.ComboBox
-$textEnvironment.Width           = 190
-$textEnvironment.Height          = 20
-$textEnvironment.Anchor          = 'top,right'
-$textEnvironment.Location        = New-Object System.Drawing.Point(310,30)
-$Environments | %{ $textEnvironment.Items.Add( $_.Name ) | Out-Null }
-$textEnvironment.SelectedIndex   = 0
-
-$btnLogin                        = New-Object system.Windows.Forms.Button
-$btnLogin.Text                   = "Credential"
-$btnLogin.Width                  = 80
-$btnLogin.Height                 = 30
-$btnLogin.Anchor                 = 'top,right'
-$btnLogin.Location               = New-Object System.Drawing.Point(510,25)
-$btnLogin.Add_Click( {
-    $Script:Environments[ $textEnvironment.SelectedIndex ].Credential = Get-Credential -UserName $Username `
-        -Message "Please enter your login credentials for the Blackbaud CRM $($Script:Environments[ $textEnvironment.SelectedIndex ].Name) environment"
-    $Form.BringToFront()
-} )
-
-$labelStartRow                   = New-Object System.Windows.Forms.Label
-$labelStartRow.Text              = "Import rows from"
-$labelStartRow.Width             = 90
-$labelStartRow.Height            = 20
-$labelStartRow.Anchor            = 'top,left'
-$labelStartRow.Location          = New-Object System.Drawing.Point(10,73)
-
-$numStartRow                     = New-Object System.Windows.Forms.NumericUpDown
-$numStartRow.Value               = $null
-$numStartRow.Width               = 100
-$numStartRow.Height              = 20
-$numStartRow.Anchor              = 'top,left'
-$numStartRow.Location            = New-Object System.Drawing.Point(100,70)
-$numStartRow.Enabled             = $false
-
-$labelEndRow                     = New-Object System.Windows.Forms.Label
-$labelEndRow.Text                = "to"
-$labelEndRow.Width               = 20
-$labelEndRow.Height              = 20
-$labelEndRow.Anchor              = 'top,left'
-$labelEndRow.Location            = New-Object System.Drawing.Point(210,73)
-
-$numEndRow                       = New-Object System.Windows.Forms.NumericUpDown
-$numEndRow.Value                 = $null
-$numEndRow.Width                 = 100
-$numEndRow.Height                = 20
-$numEndRow.Maximum               = $null
-$numEndRow.Anchor                = 'top,left'
-$numEndRow.Location              = New-Object System.Drawing.Point(230,70)
-$numEndRow.Enabled               = $false
-
-$labelInclusive                  = New-Object System.Windows.Forms.Label
-$labelInclusive.Text             = "(inclusive)"
-$labelInclusive.Width            = 60
-$labelInclusive.Height           = 20
-$labelInclusive.Anchor           = 'top,left'
-$labelInclusive.Location         = New-Object System.Drawing.Point(340,73)
-
-$listOutput                      = New-Object System.Windows.Forms.ListBox
-$listOutput.Width                = 580
-$listOutput.Height               = 240
-$listOutput.Anchor               = 'top,left,right,bottom'
-$listOutput.Location             = New-Object System.Drawing.Point(10,110)
-
-$btnStart                        = New-Object system.Windows.Forms.Button
-$btnStart.Text                   = "Start import"
-$btnStart.Width                  = 120
-$btnStart.Height                 = 30
-$btnStart.Anchor                 = 'right,bottom'
-$btnStart.Location               = New-Object System.Drawing.Point(470,360)
-$btnStart.Add_Click( { 
-    If( $Script:Csv -ne $null ) { 
-        If( $Script:Environments[ $textEnvironment.SelectedIndex ].Credential -ne $null ) { 
-            $listOutput.Items.Clear()
-            Run-Import 
-        } Else {
-        $listOutput.Items.Add( "No credential provided for $( $Script:Environments[ $textEnvironment.SelectedIndex ].Name )." )
-        }
-    } Else {
-        $listOutput.Items.Add( "No file selected." )
-    }
-} )
-
-$btnClose                       = New-Object system.Windows.Forms.Button
-$btnClose.Text                  = "Close"
-$btnClose.Width                 = 60
-$btnClose.Height                = 30
-$btnClose.Anchor                = 'bottom,left'
-$btnClose.Location              = New-Object System.Drawing.Point(10,360)
-$btnClose.DialogResult          = [System.Windows.Forms.DialogResult]::Cancel
-$Form.CancelButton              = $btnClose
-
-$Form.Controls.AddRange( @( $btnFile, $labelEnvironment, $textEnvironment, $btnLogin, $labelStartRow, $numStartRow, $labelEndRow, $numEndRow, $labelInclusive, $listOutput, $btnStart, $btnClose ) )
-$Form.ShowDialog()
-
 Function Run-Import() {
     $ServiceUrl = $Script:Environments[ $textEnvironment.SelectedIndex ].ServiceUrl
     $Database = $Script:Environments[ $textEnvironment.SelectedIndex ].Database
@@ -359,3 +222,141 @@ Function Run-Import() {
 
     $listOutput.Items.Add( "Finished." )
 }
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
+$Form                            = New-Object system.Windows.Forms.Form
+$Form.ClientSize                 = '600,400'
+$Form.MinimumSize                = '220,300'
+$Form.Text                       = "Tax Declaration Update Tool"
+$Form.TopMost                    = $false
+$Form.BringToFront()
+$Form.StartPosition              = 'CenterScreen'
+
+$btnFile                         = New-Object system.Windows.Forms.Button
+$btnFile.Text                    = "Choose file to import..."
+$btnFile.Width                   = 280
+$btnFile.Height                  = 30
+$btnFile.Anchor                  = 'top,left,right'
+$btnFile.Location                = New-Object System.Drawing.Point(10,25)
+$btnFile.Add_Click( {
+    $FileOpenForm = New-Object System.Windows.Forms.OpenFileDialog
+    $FileOpenForm.Filter = "Csv files (*.csv)|*.csv|All files(*.*)|*.*"
+    If( $FileOpenForm.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK ) {
+        $Script:Csv = Import-Csv $FileOpenForm.FileName
+        $btnFile.Text = $FileOpenForm.SafeFileName
+        $numStartRow.Enabled = $true
+        $numStartRow.Maximum = $Script:Csv.Length
+        $numStartRow.Value = 1
+        $numEndRow.Enabled = $true
+        $numEndRow.Maximum = $Script:Csv.Length
+        $numEndRow.Value = $Script:Csv.Length
+    } Else {
+        $Script:Csv = $null
+    }
+} )
+
+$labelEnvironment                = New-Object system.Windows.Forms.Label
+$labelEnvironment.Text           = "Select environment to import into"
+$labelEnvironment.Width          = 190
+$labelEnvironment.Height         = 20
+$labelEnvironment.Anchor          = 'top,right'
+$labelEnvironment.Location       = New-Object System.Drawing.Point(310,10)
+
+$textEnvironment                 = New-Object System.Windows.Forms.ComboBox
+$textEnvironment.Width           = 190
+$textEnvironment.Height          = 20
+$textEnvironment.Anchor          = 'top,right'
+$textEnvironment.Location        = New-Object System.Drawing.Point(310,30)
+$Environments | %{ $textEnvironment.Items.Add( $_.Name ) | Out-Null }
+$textEnvironment.SelectedIndex   = 0
+
+$btnLogin                        = New-Object system.Windows.Forms.Button
+$btnLogin.Text                   = "Credential"
+$btnLogin.Width                  = 80
+$btnLogin.Height                 = 30
+$btnLogin.Anchor                 = 'top,right'
+$btnLogin.Location               = New-Object System.Drawing.Point(510,25)
+$btnLogin.Add_Click( {
+    $Script:Environments[ $textEnvironment.SelectedIndex ].Credential = Get-Credential -UserName $Username `
+        -Message "Please enter your login credentials for the Blackbaud CRM $($Script:Environments[ $textEnvironment.SelectedIndex ].Name) environment"
+    $Form.BringToFront()
+} )
+
+$labelStartRow                   = New-Object System.Windows.Forms.Label
+$labelStartRow.Text              = "Import rows from"
+$labelStartRow.Width             = 90
+$labelStartRow.Height            = 20
+$labelStartRow.Anchor            = 'top,left'
+$labelStartRow.Location          = New-Object System.Drawing.Point(10,73)
+
+$numStartRow                     = New-Object System.Windows.Forms.NumericUpDown
+$numStartRow.Value               = $null
+$numStartRow.Width               = 100
+$numStartRow.Height              = 20
+$numStartRow.Anchor              = 'top,left'
+$numStartRow.Location            = New-Object System.Drawing.Point(100,70)
+$numStartRow.Enabled             = $false
+
+$labelEndRow                     = New-Object System.Windows.Forms.Label
+$labelEndRow.Text                = "to"
+$labelEndRow.Width               = 20
+$labelEndRow.Height              = 20
+$labelEndRow.Anchor              = 'top,left'
+$labelEndRow.Location            = New-Object System.Drawing.Point(210,73)
+
+$numEndRow                       = New-Object System.Windows.Forms.NumericUpDown
+$numEndRow.Value                 = $null
+$numEndRow.Width                 = 100
+$numEndRow.Height                = 20
+$numEndRow.Maximum               = $null
+$numEndRow.Anchor                = 'top,left'
+$numEndRow.Location              = New-Object System.Drawing.Point(230,70)
+$numEndRow.Enabled               = $false
+
+$labelInclusive                  = New-Object System.Windows.Forms.Label
+$labelInclusive.Text             = "(inclusive)"
+$labelInclusive.Width            = 60
+$labelInclusive.Height           = 20
+$labelInclusive.Anchor           = 'top,left'
+$labelInclusive.Location         = New-Object System.Drawing.Point(340,73)
+
+$listOutput                      = New-Object System.Windows.Forms.ListBox
+$listOutput.Width                = 580
+$listOutput.Height               = 240
+$listOutput.Anchor               = 'top,left,right,bottom'
+$listOutput.Location             = New-Object System.Drawing.Point(10,110)
+
+$btnStart                        = New-Object system.Windows.Forms.Button
+$btnStart.Text                   = "Start import"
+$btnStart.Width                  = 120
+$btnStart.Height                 = 30
+$btnStart.Anchor                 = 'right,bottom'
+$btnStart.Location               = New-Object System.Drawing.Point(470,360)
+$btnStart.Add_Click( { 
+    If( $Script:Csv -ne $null ) { 
+        If( $Script:Environments[ $textEnvironment.SelectedIndex ].Credential -ne $null ) { 
+            $listOutput.Items.Clear()
+            Run-Import 
+        } Else {
+        $listOutput.Items.Add( "No credential provided for $( $Script:Environments[ $textEnvironment.SelectedIndex ].Name )." )
+        }
+    } Else {
+        $listOutput.Items.Add( "No file selected." )
+    }
+} )
+
+$btnClose                       = New-Object system.Windows.Forms.Button
+$btnClose.Text                  = "Close"
+$btnClose.Width                 = 60
+$btnClose.Height                = 30
+$btnClose.Anchor                = 'bottom,left'
+$btnClose.Location              = New-Object System.Drawing.Point(10,360)
+$btnClose.DialogResult          = [System.Windows.Forms.DialogResult]::Cancel
+$Form.CancelButton              = $btnClose
+
+$Form.Controls.AddRange( @( $btnFile, $labelEnvironment, $textEnvironment, $btnLogin, $labelStartRow, $numStartRow, $labelEndRow, $numEndRow, $labelInclusive, $listOutput, $btnStart, $btnClose ) )
+$Form.ShowDialog()
+
